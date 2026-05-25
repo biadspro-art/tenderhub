@@ -1,0 +1,255 @@
+# TenderHub — Railway Deployment Guide
+# Zero installations needed. Everything runs in your browser.
+# Follow these steps exactly, one at a time.
+
+=============================================================
+STEP 1 — Create a GitHub Account (skip if you have one)
+=============================================================
+
+1. Open https://github.com in your browser
+2. Click "Sign up" (top right)
+3. Enter your email, create a password, choose a username
+4. Verify your email when GitHub sends you a code
+5. On the "What kind of work do you do?" screen — just click "Skip personalization"
+
+You now have a GitHub account. ✓
+
+
+=============================================================
+STEP 2 — Upload the TenderHub code to GitHub
+=============================================================
+
+1. Go to https://github.com/new
+2. In "Repository name", type: tenderhub
+3. Leave everything else as default (Private is fine)
+4. Click "Create repository" (green button)
+
+Now upload the files:
+
+5. On the next page, click the link that says "uploading an existing file"
+6. Open the tenderhub.zip you downloaded and EXTRACT it on your desktop
+   - Windows: right-click → "Extract All"
+   - Mac: double-click the zip
+   This gives you a folder called "tenderhub" with all the code inside.
+
+7. Go back to your browser (the GitHub page)
+8. Drag the entire "tenderhub" FOLDER into the browser window
+   (drag it onto the dotted upload area that says "Drag files here")
+9. Wait for all files to upload (you'll see a progress list)
+10. Scroll down, click "Commit changes" (green button)
+
+Your code is now on GitHub. ✓
+
+
+=============================================================
+STEP 3 — Create a Railway Account
+=============================================================
+
+1. Open https://railway.app in your browser
+2. Click "Start a New Project" or "Login"
+3. Click "Login with GitHub" — this connects Railway to your GitHub
+4. Authorize Railway when GitHub asks
+5. You'll land on the Railway dashboard
+
+You now have a Railway account linked to GitHub. ✓
+
+
+=============================================================
+STEP 4 — Create a New Railway Project
+=============================================================
+
+1. On the Railway dashboard, click "New Project" (top right)
+2. Click "Deploy from GitHub repo"
+3. Find and click "tenderhub" in the list
+4. Railway will ask which folder to deploy — we'll configure this next
+5. Click "Add variables" — we'll come back to this
+
+Railway has detected your repo. ✓
+
+
+=============================================================
+STEP 5 — Add PostgreSQL Database
+=============================================================
+
+1. In your Railway project view, click "+ New" (top right of the canvas)
+2. Click "Database"
+3. Click "Add PostgreSQL"
+4. Railway creates a PostgreSQL database automatically
+5. Click on the PostgreSQL box that appeared
+6. Go to the "Variables" tab
+7. You'll see DATABASE_URL — copy this value, save it in Notepad
+
+Your database is ready. ✓
+
+
+=============================================================
+STEP 6 — Add Redis
+=============================================================
+
+1. In your Railway project view, click "+ New" again
+2. Click "Database"
+3. Click "Add Redis"
+4. Railway creates Redis automatically
+5. Click on the Redis box
+6. Go to the "Variables" tab
+7. Copy the REDIS_URL value, save it in Notepad
+
+Your Redis is ready. ✓
+
+
+=============================================================
+STEP 7 — Deploy the Backend (API Server)
+=============================================================
+
+1. In your Railway project, click the service that was created from your GitHub repo
+2. Go to "Settings" tab
+3. Under "Source", set:
+   - Root Directory: backend
+4. Under "Deploy", set:
+   - Start Command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+5. Go to the "Variables" tab and add these one by one
+   (click "+ New Variable" for each):
+
+   DATABASE_URL     → paste the value you copied from Step 5
+   REDIS_URL        → paste the value you copied from Step 6
+   SECRET_KEY       → type any long random string, e.g.: TenderHub2024SuperSecretKey!XYZ789
+   ENVIRONMENT      → production
+
+6. Click "Deploy" — Railway will build and start the backend
+7. Wait 3-5 minutes. You'll see a green "Active" status when done.
+8. Click on the backend service → "Settings" → copy the PUBLIC URL
+   It looks like: https://tenderhub-backend-xxxx.railway.app
+   Save this in Notepad — you'll need it for the frontend.
+
+Backend is live! ✓
+
+
+=============================================================
+STEP 8 — Deploy the Frontend (React App)
+=============================================================
+
+1. In your Railway project, click "+ New"
+2. Click "GitHub Repo" → select "tenderhub" again
+3. This creates a second service from the same repo
+4. Click the new service → "Settings"
+5. Under "Source", set:
+   - Root Directory: frontend
+6. Under "Deploy", set:
+   - Start Command: npx serve -s build -l $PORT
+   - Build Command: npm run build
+
+7. Go to "Variables" tab, add:
+   REACT_APP_API_URL → paste your backend URL from Step 7
+                        e.g.: https://tenderhub-backend-xxxx.railway.app
+
+8. Click "Deploy" — Railway builds the React app
+9. Wait 3-5 minutes for "Active" status
+10. Copy the frontend PUBLIC URL — this is your app's address!
+    e.g.: https://tenderhub-frontend-xxxx.railway.app
+
+Frontend is live! ✓
+
+
+=============================================================
+STEP 9 — Deploy the Celery Worker (background scraper)
+=============================================================
+
+1. In your Railway project, click "+ New" → "GitHub Repo" → "tenderhub"
+2. A third service is created
+3. Click it → "Settings"
+4. Under "Source":
+   - Root Directory: backend
+5. Under "Deploy":
+   - Start Command: celery -A app.worker worker --loglevel=info
+   (NO port needed — this is a background worker, not a web server)
+6. Go to "Variables" tab, add the SAME variables as Step 7:
+   DATABASE_URL     → same value
+   REDIS_URL        → same value
+   SECRET_KEY       → same value
+   ENVIRONMENT      → production
+7. Click "Deploy"
+
+Worker is running! ✓
+
+
+=============================================================
+STEP 10 — Deploy the Celery Beat (auto-scheduler)
+=============================================================
+
+Same as Step 9, but the start command is different:
+
+1. "+ New" → "GitHub Repo" → "tenderhub"
+2. Settings → Root Directory: backend
+3. Start Command: celery -A app.worker beat --loglevel=info
+4. Add the same 4 variables (DATABASE_URL, REDIS_URL, SECRET_KEY, ENVIRONMENT)
+5. Deploy
+
+Scheduler is running! Auto-scrapes at 7 AM and 1 PM IST. ✓
+
+
+=============================================================
+STEP 11 — Open TenderHub and Set Up
+=============================================================
+
+1. Open the frontend URL from Step 8 in your browser
+   e.g.: https://tenderhub-frontend-xxxx.railway.app
+
+2. Click "Create one" to register your account
+   (First person to register becomes the admin automatically —
+    we'll add that logic, or just set is_admin=true directly in DB)
+
+3. After logging in, click "Scraper" in the left sidebar
+4. Click "Scrape Now" next to GeM Portal
+5. Wait 2-5 minutes — the scraper runs in the background
+6. Go to "Tenders" tab — you should see DG Set tenders appearing!
+7. Go to "Alerts" → create your first alert:
+   - Name: DG Set Alerts
+   - Keywords: DG Set, diesel generator, genset
+   - Leave states blank (= all India)
+
+You're live! ✓
+
+
+=============================================================
+STEP 12 — Make Yourself Admin (one-time)
+=============================================================
+
+1. On Railway, click your PostgreSQL service
+2. Click "Data" tab (Railway has a built-in database viewer)
+3. Find the "users" table
+4. Find your user row
+5. Click the "is_admin" column → set it to true
+6. Save
+
+Now you can see the Scraper panel and trigger manual scrapes.
+
+
+=============================================================
+COSTS
+=============================================================
+
+Railway free tier gives you $5 credit/month.
+4 services (backend + frontend + worker + beat) + PostgreSQL + Redis
+will use roughly $3-4/month — comfortably within the free tier.
+
+If you upgrade to Railway's $5/month Hobby plan, you get $5 credit
+on top, so it effectively runs free.
+
+
+=============================================================
+TROUBLESHOOTING
+=============================================================
+
+App not loading?
+→ Check the backend service logs in Railway (click service → Logs tab)
+→ Make sure REACT_APP_API_URL is set to the HTTPS backend URL
+
+Scraper not finding tenders?
+→ GeM portal may have updated their page structure
+→ Check worker logs in Railway for error messages
+
+Emails not sending?
+→ Add SMTP_USER, SMTP_PASSWORD, EMAIL_FROM to backend + worker variables
+→ Use a Gmail App Password (not your normal Gmail password)
+   Generate at: myaccount.google.com → Security → 2-Step Verification → App Passwords
