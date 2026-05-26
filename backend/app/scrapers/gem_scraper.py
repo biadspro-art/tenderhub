@@ -172,3 +172,7 @@ class GeMScraper:
 
         link = await card.query_selector("a[href*='bid']")
         url = None
+
+async def run_gem_scraper(keywords: list = None, max_pages: int = 5) -> list:
+    scraper = GeMScraper(keywords=keywords, max_pages=max_pages)
+    return await scraper.scrape()
