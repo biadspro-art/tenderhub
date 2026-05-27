@@ -12,7 +12,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 GEM_API_URL = "https://bidplus.gem.gov.in/all-bids"
-GEM_API_SEARCH = "https://bidplus.gem.gov.in/bidlists"
+GEM_API_SEARCH = "https://bidplus.gem.gov.in/all-bids"
 GEM_BASE_URL = "https://bidplus.gem.gov.in"
 
 DG_SET_KEYWORDS = ["DG Set", "diesel generator", "generating set", "genset"]
@@ -79,9 +79,9 @@ class GeMScraper:
             try:
                 # GeM API endpoint for bid search
                 params = {
-                    "searchedBid": keyword,
-                    "page": page_num,
-                }
+    "search_bid": keyword,
+    "page_no": page_num,
+}
                 response = await client.get(GEM_API_SEARCH, params=params)
                 logger.info(f"[GeM] API response status: {response.status_code} for keyword '{keyword}' page {page_num}")
 
