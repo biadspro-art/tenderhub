@@ -1,27 +1,34 @@
 """
 GeM (Government e-Marketplace) tender scraper.
+Uses GeM's public API - no browser needed.
 """
 
-import asyncio
 import logging
 import re
 from datetime import datetime
 from typing import Optional
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+import httpx
 
 logger = logging.getLogger(__name__)
 
+GEM_API_URL = "https://bidplus.gem.gov.in/all-bids"
+GEM_API_SEARCH = "https://bidplus.gem.gov.in/bidlists"
 GEM_BASE_URL = "https://bidplus.gem.gov.in"
-GEM_BIDS_URL = f"{GEM_BASE_URL}/all-bids"
 
-DG_SET_KEYWORDS = ["DG Set", "diesel generator", "generating set", "genset", "DG"]
+DG_SET_KEYWORDS = ["DG Set", "diesel generator", "generating set", "genset"]
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://bidplus.gem.gov.in/all-bids",
+}
 
 
 def parse_date(date_str: Optional[str]) -> Optional[datetime]:
     if not date_str:
         return None
     date_str = date_str.strip()
-    formats = ["%d/%m/%Y %I:%M %p", "%d-%m-%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d"]
+    formats = ["%d/%m/%Y %I:%M %p", "%d-%m-%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"]
     for fmt in formats:
         try:
             return datetime.strptime(date_str, fmt)
@@ -33,7 +40,7 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
 def parse_value(value_str: Optional[str]) -> Optional[float]:
     if not value_str:
         return None
-    cleaned = re.sub(r"[^\d.]", "", value_str.replace(",", ""))
+    cleaned = re.sub(r"[^\d.]", "", str(value_str).replace(",", ""))
     try:
         return float(cleaned)
     except ValueError:
@@ -41,43 +48,20 @@ def parse_value(value_str: Optional[str]) -> Optional[float]:
 
 
 class GeMScraper:
-    def __init__(self, keywords: list = None, max_pages: int = 10):
+    def __init__(self, keywords: list = None, max_pages: int = 5):
         self.keywords = keywords or DG_SET_KEYWORDS
         self.max_pages = max_pages
 
     async def scrape(self) -> list:
         all_tenders = []
-        try:
-            async with async_playwright() as p:
-                logger.info("[GeM] Launching browser...")
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                        "--single-process",
-                        "--no-zygote",
-                    ]
-                )
-                logger.info("[GeM] Browser launched successfully")
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 800},
-                )
-                page = await context.new_page()
+        async with httpx.AsyncClient(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+            for keyword in self.keywords:
+                logger.info(f"[GeM] Scraping keyword: {keyword}")
+                tenders = await self._scrape_keyword(client, keyword)
+                all_tenders.extend(tenders)
+                logger.info(f"[GeM] Found {len(tenders)} tenders for '{keyword}'")
 
-                for keyword in self.keywords:
-                    logger.info(f"[GeM] Scraping keyword: {keyword}")
-                    tenders = await self._scrape_keyword(page, keyword)
-                    all_tenders.extend(tenders)
-                    await asyncio.sleep(3)
-
-                await browser.close()
-        except Exception as e:
-            logger.error(f"[GeM] BROWSER ERROR: {type(e).__name__}: {e}", exc_info=True)
-            raise
-
+        # Deduplicate by bid number
         seen = set()
         unique = []
         for t in all_tenders:
@@ -86,92 +70,100 @@ class GeMScraper:
                 seen.add(key)
                 unique.append(t)
 
-        logger.info(f"[GeM] Total unique tenders found: {len(unique)}")
+        logger.info(f"[GeM] Total unique tenders: {len(unique)}")
         return unique
 
-    async def _scrape_keyword(self, page, keyword: str) -> list:
+    async def _scrape_keyword(self, client: httpx.AsyncClient, keyword: str) -> list:
         tenders = []
-        try:
-            await page.goto(GEM_BIDS_URL, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(2000)
+        for page_num in range(1, self.max_pages + 1):
+            try:
+                # GeM API endpoint for bid search
+                params = {
+                    "searchedBid": keyword,
+                    "page": page_num,
+                }
+                response = await client.get(GEM_API_SEARCH, params=params)
+                logger.info(f"[GeM] API response status: {response.status_code} for keyword '{keyword}' page {page_num}")
 
-            search_selectors = [
-                "input[placeholder*='Search']",
-                "input[placeholder*='search']",
-                "input[name='search']",
-                "#search",
-                ".search-input",
-            ]
-            for sel in search_selectors:
-                try:
-                    await page.fill(sel, keyword, timeout=5000)
-                    await page.keyboard.press("Enter")
-                    await page.wait_for_timeout(3000)
+                if response.status_code != 200:
+                    logger.warning(f"[GeM] Non-200 response: {response.status_code}")
                     break
-                except Exception:
-                    continue
 
-            for page_num in range(1, self.max_pages + 1):
-                logger.info(f"[GeM] Scraping page {page_num} for '{keyword}'")
-                page_tenders = await self._extract_tenders_from_page(page, keyword)
-                tenders.extend(page_tenders)
+                # Try JSON first
+                try:
+                    data = response.json()
+                    page_tenders = self._parse_json_response(data, keyword)
+                except Exception:
+                    # Fall back to parsing HTML text
+                    page_tenders = self._parse_text_response(response.text, keyword)
 
                 if not page_tenders:
+                    logger.info(f"[GeM] No more results for '{keyword}' at page {page_num}")
                     break
 
-                next_clicked = await self._go_next_page(page)
-                if not next_clicked:
-                    break
-                await page.wait_for_timeout(2000)
+                tenders.extend(page_tenders)
 
-        except PlaywrightTimeout:
-            logger.warning(f"[GeM] Timeout scraping keyword: {keyword}")
-        except Exception as e:
-            logger.error(f"[GeM] Error scraping keyword '{keyword}': {e}")
+            except httpx.RequestError as e:
+                logger.error(f"[GeM] Request error for keyword '{keyword}': {e}")
+                break
+            except Exception as e:
+                logger.error(f"[GeM] Error on page {page_num} for '{keyword}': {e}")
+                break
 
         return tenders
 
-    async def _extract_tenders_from_page(self, page, keyword: str) -> list:
+    def _parse_json_response(self, data: dict, keyword: str) -> list:
         tenders = []
-        try:
-            card_selectors = [
-                ".bid-list-card", ".bid-card", ".tender-card",
-                "[class*='bid-item']", ".card.bid",
-            ]
-            cards = []
-            for sel in card_selectors:
-                cards = await page.query_selector_all(sel)
-                if cards:
-                    break
+        # Handle different possible JSON structures from GeM
+        items = []
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("data", data.get("bids", data.get("results", [])))
 
-            if not cards:
-                cards = await page.query_selector_all("table tbody tr")
-
-            logger.info(f"[GeM] Found {len(cards)} items on page")
-
-            for card in cards:
-                try:
-                    tender = await self._parse_card(card, keyword)
-                    if tender:
-                        tenders.append(tender)
-                except Exception as e:
-                    logger.debug(f"[GeM] Error parsing card: {e}")
-
-        except Exception as e:
-            logger.error(f"[GeM] Error extracting from page: {e}")
-
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tender = {
+                "source": "gem",
+                "reference_no": item.get("bid_number") or item.get("bidNumber") or item.get("reference_no") or f"GEM-{hash(str(item)) % 1000000:06d}",
+                "title": item.get("bid_title") or item.get("title") or item.get("name") or keyword,
+                "department": item.get("department") or item.get("dept_name") or "Government of India",
+                "ministry": item.get("ministry") or None,
+                "state": item.get("state") or "Central",
+                "category": item.get("category") or keyword,
+                "tender_value": parse_value(item.get("estimated_value") or item.get("tender_value")),
+                "bid_submission_deadline": parse_date(item.get("end_date") or item.get("closing_date") or item.get("bid_end_date")),
+                "opening_date": None,
+                "tender_url": item.get("url") or f"{GEM_BASE_URL}/bidlists",
+                "description": str(item)[:500],
+                "status": "active",
+            }
+            tenders.append(tender)
         return tenders
 
-    async def _parse_card(self, card, keyword: str) -> Optional[dict]:
-        text = await card.inner_text()
-        if not text.strip():
-            return None
+    def _parse_text_response(self, text: str, keyword: str) -> list:
+        tenders = []
+        # Extract bid numbers from HTML/text response
+        bid_numbers = re.findall(r"GEM/\d+/[A-Z]/\d+", text)
+        for bid_no in bid_numbers:
+            tenders.append({
+                "source": "gem",
+                "reference_no": bid_no,
+                "title": f"{keyword} - {bid_no}",
+                "department": "Government of India",
+                "ministry": None,
+                "state": "Central",
+                "category": keyword,
+                "tender_value": None,
+                "bid_submission_deadline": None,
+                "opening_date": None,
+                "tender_url": f"{GEM_BASE_URL}/bidlists?searchedBid={keyword}",
+                "description": f"GeM tender {bid_no} matching keyword: {keyword}",
+                "status": "active",
+            })
+        return tenders
 
-        bid_no_match = re.search(r"GEM/\d+/[A-Z]/\d+", text)
-        bid_no = bid_no_match.group(0) if bid_no_match else None
-
-        link = await card.query_selector("a[href*='bid']")
-        url = None
 
 async def run_gem_scraper(keywords: list = None, max_pages: int = 5) -> list:
     scraper = GeMScraper(keywords=keywords, max_pages=max_pages)
