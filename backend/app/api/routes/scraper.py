@@ -72,3 +72,13 @@ def dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(
         tenders_by_state=tenders_by_state,
         recent_scrapes=recent_scrapes,
     )
+@router.post("/test-alert")
+async def test_alert(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """Test email alerts by matching all tenders against all alerts."""
+    from app.services.tender_service import match_and_notify
+    all_tender_ids = [t.id for t in db.query(Tender).all()]
+    match_and_notify(db, all_tender_ids)
+    return {"message": f"Tested alerts against {len(all_tender_ids)} tenders"}
