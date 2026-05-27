@@ -18,8 +18,8 @@ def scrape_gem(keyword):
     try:
         for page in range(1, 6):
             response = httpx.get(
-                "https://bidplus.gem.gov.in/all-bids",
-                params={"search_bid": keyword, "page_no": page},
+                "https://bidplus.gem.gov.in/bidlists",
+                params={"searchedBid": keyword, "page": page},
                 headers=headers,
                 timeout=30,
                 follow_redirects=True,
