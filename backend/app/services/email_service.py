@@ -35,7 +35,7 @@ def send_alert_email(user, alert, tenders):
             },
             json={
                 "from": "TenderHub <onboarding@resend.dev>",
-"to": ["biadspro@gmail.com"],
+"to": [user.email],
                 "subject": "[TenderHub] {} new tender(s) for: {}".format(count, alert.name),
                 "html": html,
             },
