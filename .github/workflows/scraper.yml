@@ -1,0 +1,29 @@
+name: GeM Scraper
+
+on:
+  schedule:
+    - cron: '30 1 * * *'   # 7:00 AM IST
+    - cron: '30 7 * * *'   # 1:00 PM IST
+  workflow_dispatch:         # allows manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install httpx psycopg2-binary playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scraper_local.py
