@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 from app.db.database import get_db
 from app.core.security import get_current_user, get_admin_user
@@ -10,7 +10,6 @@ from app.models.tender import Tender
 from app.models.alert import Alert, ScrapeLog
 from app.schemas.schemas import ScrapeRequest, ScrapeLogOut, DashboardStats
 from app.scrapers import get_available_sources
-from app.worker import scrape_source
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -21,15 +20,26 @@ def list_sources(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/trigger")
-def trigger_scrape(
+async def trigger_scrape(
     req: ScrapeRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    """Manually trigger a scrape (admin only). Runs as a Celery task."""
-    task = scrape_source.delay(req.source_id, req.keywords)
-    return {"message": f"Scrape triggered for '{req.source_id}'", "task_id": task.id}
+    from app.scrapers import run_scraper
+    from app.services.tender_service import upsert_tenders, log_scrape
+
+    async def do_scrape():
+        started_at = datetime.utcnow()
+        try:
+            tenders_data = await run_scraper(req.source_id, keywords=req.keywords)
+            total, new_count = upsert_tenders(db, tenders_data)
+            log_scrape(db, req.source_id, "success", total, new_count, started_at=started_at)
+        except Exception as exc:
+            log_scrape(db, req.source_id, "failed", 0, 0, error=str(exc), started_at=started_at)
+
+    background_tasks.add_task(do_scrape)
+    return {"message": f"Scrape triggered for '{req.source_id}'"}
 
 
 @router.get("/logs", response_model=List[ScrapeLogOut])
@@ -45,11 +55,9 @@ def dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(
     new_today = db.query(Tender).filter(Tender.scraped_at >= today).count()
     active_alerts = db.query(Alert).filter(Alert.user_id == current_user.id, Alert.is_active == True).count()
 
-    # Tenders by source
     by_source = db.query(Tender.source, func.count(Tender.id)).group_by(Tender.source).all()
     tenders_by_source = {row[0]: row[1] for row in by_source}
 
-    # Tenders by state
     by_state = db.query(Tender.state, func.count(Tender.id)).group_by(Tender.state).limit(10).all()
     tenders_by_state = {row[0] or "Unknown": row[1] for row in by_state}
 
