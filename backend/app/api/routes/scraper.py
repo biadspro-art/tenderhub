@@ -82,3 +82,13 @@ async def test_alert(
     all_tender_ids = [t.id for t in db.query(Tender).all()]
     match_and_notify(db, all_tender_ids)
     return {"message": f"Tested alerts against {len(all_tender_ids)} tenders"}
+@router.post("/ingest")
+async def ingest_tenders(
+    tenders: list,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """Receive scraped tenders from external scraper and save them."""
+    from app.services.tender_service import upsert_tenders
+    total, new_count = upsert_tenders(db, tenders)
+    return {"message": "Ingested {} tenders, {} new".format(total, new_count)}
