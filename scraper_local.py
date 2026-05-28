@@ -12,41 +12,87 @@ def get_db():
 def scrape_gem(keyword):
     tenders = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://bidplus.gem.gov.in/all-bids",
+        "X-Requested-With": "XMLHttpRequest",
     }
     try:
-        for page in range(1, 6):
-            response = httpx.get(
-                "https://bidplus.gem.gov.in/bidlists",
-                params={"searchedBid": keyword, "page": page},
-                headers=headers,
-                timeout=30,
-                follow_redirects=True,
-            )
-            print(f"[GeM] keyword='{keyword}' page={page} status={response.status_code}")
+        for page in range(1, 4):
+            url = "https://bidplus.gem.gov.in/all-bids"
+            params = {
+                "searchedBid": keyword,
+                "page_no": page,
+            }
+            response = httpx.get(url, params=params, headers=headers, timeout=30, follow_redirects=True)
+            print(f"[GeM] keyword='{keyword}' page={page} status={response.status_code} size={len(response.text)}")
+
             if response.status_code != 200:
+                print(f"[GeM] Error response: {response.text[:200]}")
                 break
 
             import re
             bid_numbers = re.findall(r"GEM/\d+/[A-Z]/\d+", response.text)
+            print(f"[GeM] Found bid numbers: {bid_numbers[:5]}")
+
             if not bid_numbers:
                 break
 
-            for bid_no in bid_numbers:
+            for bid_no in set(bid_numbers):
                 tenders.append({
                     "source": "gem",
                     "reference_no": bid_no,
-                    "title": f"{keyword} - {bid_no}",
+                    "title": "{} - {}".format(keyword, bid_no),
                     "department": "Government of India",
                     "state": "Central",
                     "category": keyword,
-                    "tender_url": f"https://bidplus.gem.gov.in/bidlists?searchedBid={keyword}",
+                    "tender_url": "https://bidplus.gem.gov.in/bidlists?searchedBid={}".format(keyword),
                     "status": "active",
                 })
+
     except Exception as e:
         print(f"[GeM] Error: {e}")
     return tenders
+
+
+def scrape_cppp(keyword):
+    """Scrape Central Public Procurement Portal"""
+    tenders = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    try:
+        url = "https://eprocure.gov.in/eprocure/app"
+        params = {
+            "page": "FrontEndTendersByKeyword",
+            "service": "page",
+            "kw": keyword,
+        }
+        response = httpx.get(url, params=params, headers=headers, timeout=30, follow_redirects=True)
+        print(f"[CPPP] keyword='{keyword}' status={response.status_code} size={len(response.text)}")
+
+        import re
+        ref_numbers = re.findall(r"\d{4}_[A-Z]+_\d+_\d+", response.text)
+        print(f"[CPPP] Found ref numbers: {ref_numbers[:5]}")
+
+        for ref in set(ref_numbers):
+            tenders.append({
+                "source": "cppp",
+                "reference_no": ref,
+                "title": "{} - {}".format(keyword, ref),
+                "department": "Government of India",
+                "state": "Central",
+                "category": keyword,
+                "tender_url": "https://eprocure.gov.in/eprocure/app?page=FrontEndTendersByKeyword&service=page&kw={}".format(keyword),
+                "status": "active",
+            })
+
+    except Exception as e:
+        print(f"[CPPP] Error: {e}")
+    return tenders
+
 
 def save_tenders(tenders):
     if not tenders:
@@ -78,21 +124,26 @@ def save_tenders(tenders):
     conn.commit()
     cur.close()
     conn.close()
-    print(f"Saved {new_count} new tenders out of {len(tenders)} found")
+    print("Saved {} new tenders out of {} found".format(new_count, len(tenders)))
     return new_count
+
 
 if __name__ == "__main__":
     all_tenders = []
     for keyword in KEYWORDS:
-        tenders = scrape_gem(keyword)
-        all_tenders.extend(tenders)
-        print(f"Found {len(tenders)} for '{keyword}'")
+        gem_tenders = scrape_gem(keyword)
+        cppp_tenders = scrape_cppp(keyword)
+        all_tenders.extend(gem_tenders)
+        all_tenders.extend(cppp_tenders)
+        print("Found {} GeM + {} CPPP for '{}'".format(len(gem_tenders), len(cppp_tenders), keyword))
 
     seen = set()
     unique = []
     for t in all_tenders:
-        if t["reference_no"] not in seen:
-            seen.add(t["reference_no"])
+        key = "{}-{}".format(t["source"], t["reference_no"])
+        if key not in seen:
+            seen.add(key)
             unique.append(t)
 
+    print("Total unique tenders: {}".format(len(unique)))
     save_tenders(unique)
