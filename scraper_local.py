@@ -72,22 +72,33 @@ def scrape_cppp(keyword):
         }
         response = httpx.get(url, params=params, headers=headers, timeout=30, follow_redirects=True)
         print(f"[CPPP] keyword='{keyword}' status={response.status_code} size={len(response.text)}")
+        print(f"[CPPP] Response preview: {response.text[:500]}")
 
         import re
-        ref_numbers = re.findall(r"\d{4}_[A-Z]+_\d+_\d+", response.text)
-        print(f"[CPPP] Found ref numbers: {ref_numbers[:5]}")
-
-        for ref in set(ref_numbers):
-            tenders.append({
-                "source": "cppp",
-                "reference_no": ref,
-                "title": "{} - {}".format(keyword, ref),
-                "department": "Government of India",
-                "state": "Central",
-                "category": keyword,
-                "tender_url": "https://eprocure.gov.in/eprocure/app?page=FrontEndTendersByKeyword&service=page&kw={}".format(keyword),
-                "status": "active",
-            })
+        # Try multiple patterns
+        patterns = [
+            r"\d{4}_[A-Z]+_\d+_\d+",
+            r"NIT\s*No[:\s]+([^\s<]+)",
+            r"Tender\s*ID[:\s]+([^\s<]+)",
+            r"tender_id=(\d+)",
+            r"TenderId=(\d+)",
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, response.text)
+            if matches:
+                print(f"[CPPP] Pattern '{pattern}' found: {matches[:5]}")
+                for ref in set(matches):
+                    tenders.append({
+                        "source": "cppp",
+                        "reference_no": str(ref),
+                        "title": "{} - {}".format(keyword, ref),
+                        "department": "Government of India",
+                        "state": "Central",
+                        "category": keyword,
+                        "tender_url": "https://eprocure.gov.in/eprocure/app?page=FrontEndTendersByKeyword&service=page&kw={}".format(keyword),
+                        "status": "active",
+                    })
+                break
 
     except Exception as e:
         print(f"[CPPP] Error: {e}")
