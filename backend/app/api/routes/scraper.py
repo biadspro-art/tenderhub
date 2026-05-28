@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
@@ -39,7 +39,30 @@ async def trigger_scrape(
             log_scrape(db, req.source_id, "failed", 0, 0, error=str(exc), started_at=started_at)
 
     background_tasks.add_task(do_scrape)
-    return {"message": f"Scrape triggered for '{req.source_id}'"}
+    return {"message": "Scrape triggered for '{}'".format(req.source_id)}
+
+
+@router.post("/ingest")
+async def ingest_tenders(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    from app.services.tender_service import upsert_tenders
+    tenders = await request.json()
+    total, new_count = upsert_tenders(db, tenders)
+    return {"message": "Ingested {} tenders, {} new".format(total, new_count)}
+
+
+@router.post("/test-alert")
+async def test_alert(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    from app.services.tender_service import match_and_notify
+    all_tender_ids = [t.id for t in db.query(Tender).all()]
+    match_and_notify(db, all_tender_ids)
+    return {"message": "Tested alerts against {} tenders".format(len(all_tender_ids))}
 
 
 @router.get("/logs", response_model=List[ScrapeLogOut])
@@ -72,23 +95,3 @@ def dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(
         tenders_by_state=tenders_by_state,
         recent_scrapes=recent_scrapes,
     )
-@router.post("/test-alert")
-async def test_alert(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
-):
-    """Test email alerts by matching all tenders against all alerts."""
-    from app.services.tender_service import match_and_notify
-    all_tender_ids = [t.id for t in db.query(Tender).all()]
-    match_and_notify(db, all_tender_ids)
-    return {"message": f"Tested alerts against {len(all_tender_ids)} tenders"}
-@router.post("/ingest")
-async def ingest_tenders(
-    tenders: list,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
-):
-    """Receive scraped tenders from external scraper and save them."""
-    from app.services.tender_service import upsert_tenders
-    total, new_count = upsert_tenders(db, tenders)
-    return {"message": "Ingested {} tenders, {} new".format(total, new_count)}
