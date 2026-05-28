@@ -131,11 +131,10 @@ def save_tenders(tenders):
 if __name__ == "__main__":
     all_tenders = []
     for keyword in KEYWORDS:
-        gem_tenders = scrape_gem(keyword)
+        # Skip GeM for now - blocks cloud IPs
         cppp_tenders = scrape_cppp(keyword)
-        all_tenders.extend(gem_tenders)
         all_tenders.extend(cppp_tenders)
-        print("Found {} GeM + {} CPPP for '{}'".format(len(gem_tenders), len(cppp_tenders), keyword))
+        print("Found {} CPPP tenders for '{}'".format(len(cppp_tenders), keyword))
 
     seen = set()
     unique = []
