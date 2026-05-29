@@ -1,10 +1,10 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 const NAV = [
-  { path: '/', label: 'Dashboard', icon: '▦' },
-  { path: '/tenders', label: 'Tenders', icon: '◈' },
-  { path: '/alerts', label: 'Alerts', icon: '◎' },
-  { path: '/scraper', label: 'Scraper', icon: '⟳', adminOnly: true },
+  { path: '/', label: 'Dashboard', icon: '\u25a6' },
+  { path: '/tenders', label: 'Tenders', icon: '\u25c8' },
+  { path: '/alerts', label: 'Alerts', icon: '\u25ce' },
+  { path: '/scraper', label: 'Scraper', icon: '\u27f3', adminOnly: true },
 ];
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -31,4 +31,15 @@ export default function Sidebar() {
         <div style={{ marginBottom: 6, color: 'var(--text2)', fontSize: 12 }}>{user?.full_name}</div>
         <div style={{ color: 'var(--text3)', fontSize: 11, marginBottom: 10 }}>{user?.email}</div>
         <div
-          style={{ cursor: 'pointe
+          style={{ cursor: 'pointer', color: 'var(--red)', fontSize: 12 }}
+          onClick={signout}
+        >
+          Sign out
+        </div>
+        <div style={{ marginTop: 20, color: 'var(--text3)', fontSize: 10, opacity: 0.5 }}>
+          &copy; 2026 Bianca &middot; TenderHub
+        </div>
+      </div>
+    </div>
+  );
+}
