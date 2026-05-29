@@ -4,13 +4,6 @@ import { format } from 'date-fns';
 
 const SOURCES = ['gem', 'cppp', 'maharashtra', 'delhi'];
 
-function ValueDisplay({ v }) {
-  if (!v) return <span style={{ color: 'var(--text3)' }}>—</span>;
-  if (v >= 1e7) return <span>₹{(v / 1e7).toFixed(1)}Cr</span>;
-  if (v >= 1e5) return <span>₹{(v / 1e5).toFixed(1)}L</span>;
-  return <span>₹{v.toLocaleString()}</span>;
-}
-
 export default function Tenders() {
   const [tenders, setTenders] = useState([]);
   const [total, setTotal] = useState(0);
@@ -22,8 +15,6 @@ export default function Tenders() {
     source: '',
     state: '',
     department: '',
-    min_value: '',
-    max_value: '',
     status: 'active',
   });
 
@@ -64,8 +55,6 @@ export default function Tenders() {
         </select>
         <input className="input" placeholder="State..." value={filters.state} onChange={e => set('state', e.target.value)} style={{ minWidth: 120 }} />
         <input className="input" placeholder="Department..." value={filters.department} onChange={e => set('department', e.target.value)} style={{ minWidth: 150 }} />
-        <input className="input" placeholder="Min value (₹)" type="number" value={filters.min_value} onChange={e => set('min_value', e.target.value)} style={{ minWidth: 120 }} />
-        <input className="input" placeholder="Max value (₹)" type="number" value={filters.max_value} onChange={e => set('max_value', e.target.value)} style={{ minWidth: 120 }} />
         <select className="select" value={filters.status} onChange={e => set('status', e.target.value)} style={{ minWidth: 100 }}>
           <option value="active">Active</option>
           <option value="closed">Closed</option>
@@ -82,16 +71,15 @@ export default function Tenders() {
                 <th>Reference</th>
                 <th>Source</th>
                 <th>Department</th>
-                <th>Value</th>
                 <th>Deadline</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {loading
-                ? <tr><td colSpan={7} style={{ color: 'var(--text3)', fontFamily: 'var(--mono)' }}>Loading...</td></tr>
+                ? <tr><td colSpan={6} style={{ color: 'var(--text3)', fontFamily: 'var(--mono)' }}>Loading...</td></tr>
                 : tenders.length === 0
-                  ? <tr><td colSpan={7} style={{ color: 'var(--text3)' }}>No tenders found. Trigger a scrape to populate data.</td></tr>
+                  ? <tr><td colSpan={6} style={{ color: 'var(--text3)' }}>No tenders found. Trigger a scrape to populate data.</td></tr>
                   : tenders.map(t => (
                       <tr key={t.id}>
                         <td className="primary" style={{ maxWidth: 300 }}>
@@ -103,7 +91,6 @@ export default function Tenders() {
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'nowrap' }}>{t.reference_no}</td>
                         <td><span className={`badge badge-${t.source}`}>{t.source.toUpperCase()}</span></td>
                         <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.department || '—'}</td>
-                        <td style={{ fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}><ValueDisplay v={t.tender_value} /></td>
                         <td style={{ fontFamily: 'var(--mono)', fontSize: 12, whiteSpace: 'nowrap', color: t.bid_submission_deadline && new Date(t.bid_submission_deadline) < new Date() ? 'var(--red)' : 'var(--text2)' }}>
                           {t.bid_submission_deadline ? format(new Date(t.bid_submission_deadline), 'dd MMM yyyy') : '—'}
                         </td>
